@@ -2,7 +2,7 @@ import { createServer } from 'http';
 
 const ALLOWED_ORIGIN = process.env.CLIENT_URL || '*';
 
-// DB in memory
+// In memory DB
 let taskID = 4;
 const db = {
     tasks: [
@@ -12,6 +12,8 @@ const db = {
     ],
 };
 
+// Actual Request (POST/GET/PUT/DELETE) - Request thực sự mang data đi qua serverResponse
+// Return data + status code - Được gọi bởi các route handlers
 function serverResponse(httpRes, response) {
     httpRes.writeHead(response.status, {
         'Content-Type': 'application/json',
@@ -26,6 +28,19 @@ function serverResponse(httpRes, response) {
 // req: tiếp nhận yêu cầu
 // res: xử lý phản hồi
 const server = createServer((req, res) => {
+    // XỬ LÝ OPTIONS REQUEST (Preflight request) -> Không gọi serverResponse()
+    // Return 204 (no content) ngay
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+            'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+            'Access-Control-Allow-Methods':
+                'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.end();
+        return;
+    }
+
     // Khởi tạo response với status mặc định
     let response = {
         status: 200,
@@ -83,7 +98,7 @@ const server = createServer((req, res) => {
 
     // [PUT/PATCH] /api/tasks/:id
     if (
-        (req.method === 'PUT' || req.method === 'PATCH') &&
+        ['PUT', 'PATCH'].includes(req.method) &&
         req.url.startsWith('/api/tasks/')
     ) {
         const id = +req.url.split('/').pop();
@@ -171,7 +186,63 @@ const server = createServer((req, res) => {
         return;
     }
 
-    //  Other
+    // [BYPASS CORS] /bypass-cors?url=...
+    if (req.url.startsWith('/bypass-cors')) {
+        // Parse query params
+        const fullUrl = new URL(req.url, `http://${req.headers.host}`);
+        const targetUrl = fullUrl.searchParams.get('url');
+
+        if (!targetUrl) {
+            serverResponse(res, {
+                status: 400,
+                message: 'Missing "url" query parameter',
+            });
+            return;
+        }
+
+        // Đọc body (nếu có)
+        let body = '';
+        req.on('data', (buffer) => {
+            body += buffer.toString();
+        });
+
+        // Xử lý khi nhận đủ body
+        req.on('end', async () => {
+            try {
+                // Tạo fetch options
+                const fetchOptions = {
+                    method: req.method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                };
+
+                // Thêm body nếu không phải GET/HEAD
+                if (!['GET', 'HEAD'].includes(req.method) && body) {
+                    fetchOptions.body = body;
+                }
+
+                // Gọi target URL
+                const apiResponse = await fetch(targetUrl, fetchOptions);
+                const data = await apiResponse.json();
+
+                // Trả về data
+                serverResponse(res, {
+                    status: apiResponse.status,
+                    data: data,
+                });
+            } catch (error) {
+                serverResponse(res, {
+                    status: 500,
+                    message: 'Failed to fetch from target URL',
+                    error: error.message,
+                });
+            }
+        });
+        return;
+    }
+
+    // Default route
     serverResponse(res, {
         status: 200,
         data: 'OK',
