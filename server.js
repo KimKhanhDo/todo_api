@@ -25,11 +25,6 @@ readDB().then((data) => {
     taskID = currentId + 1;
 });
 
-console.log(db.tasks);
-
-// const currentId = db.filter((task) => task.id);
-// console.log('🚀 ~ currentId:', currentId);
-
 // Actual Request (POST/GET/PUT/DELETE) - Request thực sự mang data đi qua serverResponse
 // Return data + status code - Được gọi bởi các route handlers
 function serverResponse(req, res, httpRes) {
@@ -237,7 +232,7 @@ const server = createServer((req, res) => {
         const targetUrl = fullUrl.searchParams.get('url');
 
         if (!targetUrl) {
-            serverResponse(res, {
+            serverResponse(req, res, {
                 status: 400,
                 message: 'Missing "url" query parameter',
             });
@@ -271,12 +266,12 @@ const server = createServer((req, res) => {
                 const data = await apiResponse.json();
 
                 // Trả về data
-                serverResponse(res, {
+                serverResponse(req, res, {
                     status: apiResponse.status,
                     data: data,
                 });
             } catch (error) {
-                serverResponse(res, {
+                serverResponse(req, res, {
                     status: 500,
                     message: 'Failed to fetch from target URL',
                     error: error.message,
@@ -287,7 +282,7 @@ const server = createServer((req, res) => {
     }
 
     // Default route
-    serverResponse(res, {
+    serverResponse(req, res, {
         status: 200,
         data: 'OK',
     });
