@@ -1,0 +1,24 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Learn Node JS",
+      "isCompleted": false
+    },
+    {
+      "id": 2,
+      "title": "Build REST API",
+      "isCompleted": true
+    },
+    {
+      "id": 3,
+      "title": "Build FE",
+      "isCompleted": false
+    },
+    {
+      "id": 4,
+      "title": "Cooking noodle",
+      "isCompleted": false
+    }
+  ]
+}

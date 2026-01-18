@@ -1,42 +1,78 @@
 import { createServer } from 'http';
+import { readDB, writeDB } from './utils/read-write-file.js';
 
-const ALLOWED_ORIGIN = process.env.CLIENT_URL || '*';
+const ALLOWED_ORIGIN = process.env.CLIENT_URL;
+
+const allowOrigins = ALLOWED_ORIGIN.split(',').map((origin) => origin.trim());
 
 // In memory DB
-let taskID = 4;
-const db = {
-    tasks: [
-        { id: 1, title: 'Learn Node JS', isCompleted: false },
-        { id: 2, title: 'Build REST API', isCompleted: true },
-        { id: 3, title: 'Build FE', isCompleted: false },
-    ],
-};
+let taskID;
+// const db = {
+//     tasks: [
+//         { id: 1, title: 'Learn Node JS', isCompleted: false },
+//         { id: 2, title: 'Build REST API', isCompleted: true },
+//         { id: 3, title: 'Build FE', isCompleted: false },
+//     ],
+// };
+
+let db = {};
+readDB().then((data) => {
+    db = data;
+
+    const ids = db.tasks.map((task) => task.id);
+    const currentId = Math.max(...ids);
+    console.log('🚀 ~ currentId:', currentId);
+    taskID = currentId + 1;
+});
+
+console.log(db.tasks);
+
+// const currentId = db.filter((task) => task.id);
+// console.log('🚀 ~ currentId:', currentId);
 
 // Actual Request (POST/GET/PUT/DELETE) - Request thực sự mang data đi qua serverResponse
 // Return data + status code - Được gọi bởi các route handlers
-function serverResponse(httpRes, response) {
-    httpRes.writeHead(response.status, {
+function serverResponse(req, res, httpRes) {
+    const allowOrigin = allowOrigins.find(
+        (origin) => origin.toLowerCase() === req.headers.origin?.toLowerCase(),
+    );
+
+    const headers = {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
         'Access-Control-Allow-Methods':
             'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
-    });
-    httpRes.end(JSON.stringify(response));
+    };
+
+    if (allowOrigin) {
+        headers['Access-Control-Allow-Origin'] = allowOrigin;
+    }
+
+    res.writeHead(httpRes.status, headers);
+    res.end(JSON.stringify(httpRes));
 }
 
 // req: tiếp nhận yêu cầu
 // res: xử lý phản hồi
 const server = createServer((req, res) => {
-    // XỬ LÝ OPTIONS REQUEST (Preflight request) -> Không gọi serverResponse()
-    // Return 204 (no content) ngay
+    // XỬ LÝ OPTIONS REQUEST (Preflight request)
     if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-            'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-            'Access-Control-Allow-Methods':
-                'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
+        const allowOrigin = allowOrigins.find((_origin) => {
+            return _origin.toLowerCase() === req.headers.origin?.toLowerCase();
         });
+
+        const headers = {};
+
+        if (allowOrigin) {
+            headers['Access-Control-Allow-Origin'] = allowOrigin;
+            headers['Access-Control-Allow-Headers'] = 'Content-Type';
+            headers['Access-Control-Allow-Methods'] =
+                'GET, POST, PUT, PATCH, DELETE, OPTIONS';
+            headers['Access-Control-Max-Age'] = '60';
+        }
+
+        // Return 204 (no content)
+        res.writeHead(204, headers);
         res.end();
         return;
     }
@@ -50,7 +86,7 @@ const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/api/tasks') {
         response.data = db.tasks;
 
-        serverResponse(res, response);
+        serverResponse(req, res, response);
         return;
     }
 
@@ -66,7 +102,7 @@ const server = createServer((req, res) => {
             response.message = 'Resource not found';
         }
 
-        serverResponse(res, response);
+        serverResponse(req, res, response);
         return;
     }
 
@@ -79,6 +115,7 @@ const server = createServer((req, res) => {
 
         req.on('end', () => {
             const payload = JSON.parse(body);
+
             const newTask = {
                 id: taskID++,
                 title: payload.title,
@@ -86,11 +123,12 @@ const server = createServer((req, res) => {
             };
 
             db.tasks.push(newTask);
+            writeDB(db);
 
             response.status = 201;
             response.data = newTask;
 
-            serverResponse(res, response);
+            serverResponse(req, res, response);
         });
 
         return;
@@ -110,7 +148,7 @@ const server = createServer((req, res) => {
                 body += buffer.toString();
             });
 
-            req.on('end', () => {
+            req.on('end', async () => {
                 try {
                     const payload = JSON.parse(body);
 
@@ -122,6 +160,8 @@ const server = createServer((req, res) => {
                             title: payload.title,
                             isCompleted: payload.isCompleted ?? false,
                         };
+
+                        await writeDB(db);
                     } else {
                         // PATCH: chỉ cập nhật những field được gửi lên
                         if (payload.title !== undefined) {
@@ -132,17 +172,19 @@ const server = createServer((req, res) => {
                             db.tasks[taskIndex].isCompleted =
                                 payload.isCompleted;
                         }
+
+                        await writeDB(db);
                     }
 
                     response.status = 200;
                     response.data = db.tasks[taskIndex];
 
-                    serverResponse(res, response);
+                    serverResponse(req, res, response);
                 } catch (error) {
                     // Xử lý lỗi JSON parse
                     response.status = 400;
                     response.message = 'Invalid JSON';
-                    serverResponse(res, response);
+                    serverResponse(req, res, response);
                 }
             });
 
@@ -151,7 +193,7 @@ const server = createServer((req, res) => {
 
         response.status = 404;
         response.message = 'Resource not found';
-        serverResponse(res, response);
+        serverResponse(req, res, response);
         return;
     }
 
@@ -167,6 +209,8 @@ const server = createServer((req, res) => {
             // Xóa task
             db.tasks.splice(taskIndex, 1);
 
+            writeDB(db);
+
             // Code 204 không trả về data
             // response.status = 204;
 
@@ -175,12 +219,12 @@ const server = createServer((req, res) => {
             response.data = deletedTask;
             response.message = 'Task deleted successfully';
 
-            serverResponse(res, response);
+            serverResponse(req, res, response);
         } else {
             // Task không tồn tại
             response.status = 404;
             response.message = 'Resource not found';
-            serverResponse(res, response);
+            serverResponse(req, res, response);
         }
 
         return;
